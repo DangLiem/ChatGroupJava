@@ -25,7 +25,7 @@ public class Server {
     private int port;
     //public static ArrayList<Socket> listSocket;
     public static HashMap<String, Socket> listClient;
-    
+    public static HashMap<String, String> listPort;
 
     public Server(int port) {
         this.port = port;
@@ -51,6 +51,7 @@ public class Server {
     public static void main(String[] args) throws IOException {
         //Server.listSocket = new ArrayList<>();
         Server.listClient = new HashMap<>();
+        Server.listPort = new HashMap<>();
         Server server = new Server(8686);
         server.excute();
     }
@@ -71,6 +72,12 @@ public class Server {
                 //put to listClient
                 String name = dis.readUTF();
                 Server.listClient.put(name, server);
+                System.out.println("put name:" + name);
+                
+                //put to listPort;
+                String port = dis.readUTF();
+                Server.listPort.put(name, port);
+                System.out.println("put port: " + name + ", " + port);
                 //send mem to client
                 Iterator<String> listMem = Server.listClient.keySet().iterator();
                 while(listMem.hasNext()){
@@ -78,7 +85,9 @@ public class Server {
                     Iterator<String> listName = Server.listClient.keySet().iterator();
                     while(listName.hasNext()){
                         String nameOnline = listName.next();
-                        String memSend = "**Name" + nameOnline;
+                        //send name + port
+                        String memSend = "**Name" + nameOnline + "," + listPort.get(nameOnline);
+                        System.out.println("memSend: " + memSend);
                         Server.send(memSend, Server.listClient.get(mem));
                     }
                 }
@@ -88,7 +97,7 @@ public class Server {
                         String nameCl = sms.substring(7);
                         System.out.println("Dong ket noi voi: " + nameCl);
                         Server.listClient.remove(nameCl);
-                        
+                        Server.listPort.remove(nameCl);
                         //send delete online
                         Iterator<String> delete = Server.listClient.keySet().iterator();
                         while(delete.hasNext()){

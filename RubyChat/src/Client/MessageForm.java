@@ -9,6 +9,7 @@ import java.awt.event.KeyEvent;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.HashMap;
 import java.util.logging.Level;
@@ -31,15 +32,20 @@ public class MessageForm extends javax.swing.JFrame {
     public static DataInputStream inputFromServer;
     public static DataOutputStream outputToServer;
     
-    private String name;
+    public static String name;
+    private int portServer;
+    private ServerSocket serverSocket;
     
     public static DefaultListModel<String> model1;
     
     public static DefaultListModel<String> memberOnline;
     
-    //public static HashMap<String, DefaultListModel<String>> listModel;
+    public static HashMap<String, DefaultListModel<String>> listModel;
+    public static HashMap<String, Socket> listSocket;
+    //public static HashMap<String, ReadFromServer> listThread;
+    public static boolean isGroup = true;
     
-    
+    public static String nameSentTo = "";
     public MessageForm() throws IOException {
         initComponents();
         this.execute();
@@ -50,15 +56,38 @@ public class MessageForm extends javax.swing.JFrame {
     private void execute() throws IOException{
         model1 = new DefaultListModel<>();
         memberOnline = new DefaultListModel<>();
+        listModel = new HashMap<>();
+        listSocket = new HashMap<>();
+       // listThread = new HashMap<>();
         jList_Online.setModel(memberOnline);
         jList_Message.setModel(model1);
+        
         socket = new Socket(SERVER_IP, SERVER_PORT); // Connect to server
         System.out.println("Connected: " + socket);
         
         name = JOptionPane.showInputDialog("Type name: ");
+        String port = JOptionPane.showInputDialog("Type port: ");
+        portServer = Integer.parseInt(port);
+        System.out.println("Port: " + portServer);
+        
+        //init server
+        this.initServerP2P();
+        
+        //listening
+        Listening listening = new Listening(serverSocket);
+        listening.start();
+        
+        //send name
         MessageForm.send(name);
         System.out.println("Send name: " + name);
+        //bind name to jlb_name
         jlb_name.setText(name);
+        
+        //send port 
+        System.out.println("Send port: " + port);
+        MessageForm.send(port);
+        
+        
     }
     
     public static void send(String str) throws IOException{
@@ -66,39 +95,65 @@ public class MessageForm extends javax.swing.JFrame {
         outputToServer.writeUTF(str);
     }
     
+      public static void send(String str, Socket sk) throws IOException{
+        DataOutputStream outputToClient = new DataOutputStream(sk.getOutputStream());
+        outputToClient.writeUTF(str);
+        System.out.println("Send: " + str + "to: " + sk);
+    }
+    
     public static void receive() throws IOException {
         inputFromServer = new DataInputStream(socket.getInputStream());
         String str = inputFromServer.readUTF();
         MessageForm.addMessage(str);
     }
-    
-    public void chatGroup(){
-       
-    }
-    
+
     public static void addMessage(String str){
         model1.addElement(str);
     }
+    public static void addMessage(String str, String name){
+        listModel.get(name).addElement(str);
+    }
     
-    public static void addOnline(String mem){
-        if(!memberOnline.contains(mem))
-            memberOnline.addElement(mem);
+    public static void addOnline(String memName, String memPort){
+        if(!memberOnline.contains(memName)){
+            try {
+                memberOnline.addElement(memName);
+                int port = Integer.parseInt(memPort);
+                Socket newSocket = new Socket(SERVER_IP, port);
+                System.out.println("Connected: " + newSocket);
+                MessageForm.send(name, newSocket);
+                listSocket.put(memName, newSocket);
+                listModel.put(memName, new DefaultListModel<>());
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+                System.out.println("Error: addOnline");
+            }
+            
+        }
     }
     public static void removeOnline(String mem){
-        if(memberOnline.contains(mem))
+        if(memberOnline.contains(mem)){
             memberOnline.removeElement(mem);
+            listSocket.remove(mem);
+            listModel.remove(mem);
+            //listThread.get(mem).stop();
+        }
+            
+        
     }
     
-//    public static void addModel(String mem){
-//        if(!listModel.containsKey(mem)){
-//            listModel.put(mem, new DefaultListModel<>());
-//        }
-//    }
-//    public static void removeModel(String mem){
-//        if(listModel.containsKey(mem)){
-//            listModel.remove(mem);
-//        }
-//    }
+    public void initServerP2P(){
+        try{
+            serverSocket = new ServerSocket(portServer);
+            System.out.println("Gán port cho server socket:" + portServer + "...");
+            System.out.println("Server đã được khởi động: "  + serverSocket);
+            System.out.println("Đợi kết nối từ các client...");
+        } catch(IOException e){
+            System.out.println("Tạo server lỗi !!!");
+            e.printStackTrace();
+        }
+    }
+    
     
     /**
      * This method is called from within the constructor to initialize the form.
@@ -175,6 +230,11 @@ public class MessageForm extends javax.swing.JFrame {
 
         jButton1.setBackground(new java.awt.Color(255, 255, 255));
         jButton1.setText("Group");
+        jButton1.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton1ActionPerformed(evt);
+            }
+        });
 
         javax.swing.GroupLayout jPanel8Layout = new javax.swing.GroupLayout(jPanel8);
         jPanel8.setLayout(jPanel8Layout);
@@ -357,20 +417,36 @@ public class MessageForm extends javax.swing.JFrame {
 
     private void jTF_chatKeyPressed(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_jTF_chatKeyPressed
         // TODO add your handling code here:
-        if (evt.getKeyCode() == KeyEvent.VK_ENTER) { 
-            String strChat = jTF_chat.getText();
-            try {
-                String sms = "    " + strChat;
-                this.send(strChat);
-                this.addMessage(sms);
-                jTF_chat.setText("");
-                
-            } catch (IOException ex) {
-                Logger.getLogger(MessageForm.class.getName()).log(Level.SEVERE, null, ex);
-            }
-            
+        if(isGroup){
+            if (evt.getKeyCode() == KeyEvent.VK_ENTER) { 
+                String strChat = jTF_chat.getText();
+                try {
+                    String sms = "    " + strChat;
+                    this.send(strChat);
+                    this.addMessage(sms);
+                    jTF_chat.setText("");
+
+                } catch (IOException ex) {
+                    Logger.getLogger(MessageForm.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }   
+        } else {
+            if (evt.getKeyCode() == KeyEvent.VK_ENTER) { 
+
+                try {
+                    String strChat = jTF_chat.getText();
+                    String sms = "    " + strChat;
+                    this.addMessage(sms, nameSentTo);
+                    String smsSend = "[" + name + "]" + ": " + strChat;
+                    this.send(smsSend, listSocket.get(nameSentTo));
+                    jTF_chat.setText("");
+
+
+                } catch (Exception ex) {
+                    System.out.println(ex.getMessage());
+                }
         }
-         
+    }    
     }//GEN-LAST:event_jTF_chatKeyPressed
 
     private void formWindowClosing(java.awt.event.WindowEvent evt) {//GEN-FIRST:event_formWindowClosing
@@ -385,9 +461,21 @@ public class MessageForm extends javax.swing.JFrame {
 
     private void jList_OnlineMouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_jList_OnlineMouseClicked
         // TODO add your handling code here:
+        if(isGroup)
+            isGroup = false;
         String nameChat = jList_Online.getSelectedValue();
+       // System.out.println("test name chat: " + nameChat);
+        jList_Message.setModel(listModel.get(nameChat));
+        nameSentTo = nameChat;
         
     }//GEN-LAST:event_jList_OnlineMouseClicked
+
+    private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
+        if(!isGroup){
+            isGroup = true;
+            jList_Message.setModel(model1);
+        }
+    }//GEN-LAST:event_jButton1ActionPerformed
 
     /**
      * @param args the command line arguments
@@ -457,13 +545,15 @@ public class MessageForm extends javax.swing.JFrame {
 }
 
 class ReadFromServer extends Thread{
-    private Socket socket;
-
+    public Socket socket;
+    public String name = "**Group";
     public ReadFromServer(Socket socket) {
         this.socket = socket;
     }
-
-    
+    public ReadFromServer(Socket socket, String name){
+        this.socket = socket;
+        this.name = name;
+    }    
         @Override
         public void run() {
             DataInputStream dis = null;
@@ -471,21 +561,29 @@ class ReadFromServer extends Thread{
                 dis = new DataInputStream(socket.getInputStream());
                 while(true){
                     String sms = dis.readUTF();
-                    System.out.println(sms);
+                    System.out.println("sms la: " + sms);
                     
                     //layten
                     if(sms.substring(0, 6).equals("**Name")){
-                        int indexEnd;
-                        
-                        String mem = sms.substring(6);
-                       
-                        MessageForm.addOnline(mem);
-                    
+                        try{
+                            String[] subs = sms.split(",");
+                            String memName = subs[0].substring(6);
+                            String memPort = subs[1];
+                            MessageForm.addOnline(memName, memPort);
+                            System.out.println("Test nhan memName: " + memName + ", port: " + memPort); 
+                        }catch (Exception e1){
+                            System.out.println("Error get name, port from client");
+                            System.out.println(e1.getMessage());
+                        }   
                     } else if(sms.substring(0, 8).equals("**Delete")){
                         String memRemove = sms.substring(8);
                         MessageForm.removeOnline(memRemove);
                     } else{
-                        MessageForm.addMessage(sms);
+                        if(this.name=="**Group")
+                            MessageForm.addMessage(sms);
+                        else{
+                            MessageForm.addMessage(sms, name);
+                        }
                     }
                     
                     
@@ -500,6 +598,28 @@ class ReadFromServer extends Thread{
                 }
                 System.out.println(ex.getMessage());
             }
+        }         
+}
+class Listening extends Thread {
+    private ServerSocket serverSocket;
+    public Listening(ServerSocket socket){
+        this.serverSocket = socket;
+    }
+
+    @Override
+    public void run() {
+        while(true){
+            try {
+                Socket socket = serverSocket.accept();
+                DataInputStream inputFromServer = new DataInputStream(socket.getInputStream());
+                String memName = inputFromServer.readUTF();
+                ReadFromServer temp = new ReadFromServer(socket, memName);
+                temp.start();
+                System.out.println("Thread Started");
+            } catch (IOException ex) {
+                Logger.getLogger(Listening.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            
         }
-          
+    }
 }
